@@ -1,10 +1,11 @@
 # mozrs
 
-Mozc の OSS バイナリ辞書を Rust で生成・検索するライブラリと CLI です。
-辞書ビルダー、完全一致検索、共通接頭辞検索を実装しています。
+Mozc の OSS データを使い、辞書の生成・検索と基本的な文章変換を Rust で行うライブラリと CLI です。
+辞書ビルダー、完全一致・共通接頭辞検索、接続表生成、最小コスト経路の探索を実装しています。
 対象は upstream commit
 [`c4b2aef7c65e61be394bacadaec200eb5b97f91c`](https://github.com/google/mozc/commit/c4b2aef7c65e61be394bacadaec200eb5b97f91c)
-から生成した **`dictionary.data` 単体**です。
+から生成した **`dictionary.data` と非量子化の `connection.data`** を対象にします。
+文節操作やリライターを備えた完全な Mozc 変換器ではありません。
 
 ## ビルドと試用
 
@@ -29,18 +30,71 @@ cargo run --locked -- tests/fixtures/synthetic.data prefix あいうえお
 python3 tools/build_oss.py
 target/release/mozrs dictionary-build/dictionary.data check
 target/release/mozrs dictionary-build/dictionary.data exact にほん
+target/release/mozrs-convert dictionary-build/dictionary.data \
+  dictionary-build/connection.data 1841 わたしはにほんごをべんきょうしています
 ```
 
 初回は固定版の Mozc ソースと郵便番号データを取得し、SHA-256 を検証します。
 既存の Python 処理で郵便番号・補助語彙・語彙フィルターを準備し、Rust で
-品詞 ID の解決、濁点の正規化、読み補正、バイナリ辞書の生成を行います。
+品詞 ID の解決、濁点の正規化、読み補正、バイナリ辞書・接続表の生成を行います。
 `user_pos_manager.data`、Protobuf、Abseil、C++ 辞書生成器は使いません。
 
-出力は `dictionary-build/dictionary.data`、入力のハッシュと件数は
+出力は `dictionary-build/dictionary.data` と `connection.data`、入力のハッシュと件数は
 `dictionary-build/manifest.json`、中間語彙は `prepared/`、データのライセンス資料は
 `licenses/` に保存します。`--cache DIR`、`--output DIR` で変更できます。
-`--builder /path/to/mozrs-build` を指定すると既存バイナリを使い、Cargo を起動しません。
+`--builder /path/to/mozrs-build` を指定すると既存バイナリと同じディレクトリの
+`mozrs-build-connection` を使い、Cargo を起動しません。接続表生成器は
+`--connection-builder PATH` で別途指定できます。
 通常の生成には比較用 C++ ツールのビルドも実行も不要です。
+
+## 基本的な文章変換
+
+```sh
+mozrs-convert DICTIONARY.data CONNECTION.data UNKNOWN_POS_ID [QUERY ...]
+```
+
+読みから最小コストの候補を1つ返します。上記の実例では
+「私は日本語を勉強しています」、総コスト `17015` を返します。
+`QUERY` を省略すると UTF-8 の標準入力を一行ずつ読みます。出力は JSONL で、
+`query`、変換文字列 `value`、総コスト `cost`、末尾の接続コスト `eos_cost`、
+選択した単語列 `tokens` を含みます。
+
+`UNKNOWN_POS_ID` は同じ品詞定義から求めた未知語用 ID です。この固定版 OSS は `1841`。
+生成時の `manifest.json` の `connection.unknown_pos_id` に記録しています。
+辞書と接続表は同じ品詞定義・上流版の組で使ってください。範囲外 ID は拒否しますが、
+同じサイズで意味の違う品詞表との組み合わせまでは検出できません。
+
+変換の規則は以下のとおりです。
+
+- 各文字位置で既存の共通接頭辞検索を行い、単語候補をつないで最適経路を求めます。
+- 総コストは **復号済みの単語コストの合計＋接続コストの合計**。接続は
+  前の語の `rid` → 次の語の `lid`。文頭・文末の品詞 ID はともに `0` です。
+- すべての Unicode 文字位置に、原文1スカラーを保つ未知語候補を追加します。
+  単語コストは `32767`、左右品詞は指定 ID。辞書語があっても追加します。
+  数字・英字・カタカナの連続部分を特別にまとめる処理はありません。
+- `30000` の接続コストも有限のペナルティとして加算します。接続禁止にはしません。
+- 同点では、開始 byte 位置の昇順、辞書の接頭辞・格納順、最後に未知語、という
+  ノード追加順で先に見つかった経路を保持します。文末でも同じ規則です。
+- 入力の正規化・ローマ字変換は行いません。空入力は空の候補・コスト `0`。
+  JSON 内の `start` / `end` は元の入力の UTF-8 byte オフセットです。
+
+`tokens` は単語の経路であり、編集可能な Mozc の文節ではありません。
+各要素は辞書 token の各フィールドに `start`、`end`、`unknown`、
+直前からの `transition_cost` を追加しています。
+上限は入力 4096 byte、20万ノード、中間遷移比較1000万回です。
+超過時はエラーにし、候補を間引いた近似結果は返しません。NUL も拒否します。
+
+接続表を単独で生成する場合：
+
+```sh
+mozrs-build-connection connection_single_column.txt id.def special_pos.def connection.data
+```
+
+上流と同じ行ごとの最頻値・2段階ビットマップによる非量子化形式を生成します。
+品詞定義は `0` 始まりの連番、コストは `0..65535`、元データは行優先の正方行列です。
+特殊品詞の行・列は上流と同じ `30000`、文頭・文末との接続は `0` を補います。
+量子化された resolution 64 等の接続表は未対応で、読み込み時に拒否します。
+接続表は読み込み時に密行列へ展開します（OSS では約14.3 MBのコスト配列）。
 
 ## 整形済み語彙から生成する
 
@@ -128,6 +182,8 @@ LOUDS の探索用インデックスをメモリ上に展開する実装なの�
 生成 API は `builder::build(Vec<Token>, &BuildOptions)` で `Vec<u8>` を返します。
 TSV 入力用には `input::parse_tsv_line`、`PosIds::from_definitions`、
 `input::add_reading_corrections` を公開しています。
+文章変換は `Converter::new(&dictionary, &connection, unknown_pos_id)?.convert(query)`。
+`connection::Connection` と `converter::Converter` はいずれも Rust の実装です。
 
 ## 任意の上流 C++ 比較を再現する
 
@@ -149,6 +205,13 @@ python3 tools/validate.py --bazelisk /path/to/bazelisk
    郵便番号・補助語彙・フィルター結果も上流 Bazel の中間ファイルと照合する。
 6. 辞書を Rust で全件検証し、両実装の検索結果の全フィールド・件数・順序を比較する。
    実辞書の検索比較は固定 seed のサンプルを使う。
+7. 接続表の生成バイト列と全セルの復号値、同じ基本ノードを使った上流 Viterbi の
+   経路・コストを照合する。比較用に上流の OSS `mozc.data` も生成する。
+
+変換比較は、上流の既存 test peer を通じて **未変更の `ImmutableConverter::Viterbi`**
+を呼びます。ノードは今回の基本ポリシーで作り、1区間・履歴なし・接続ボーナスなし。
+上流の `MakeLattice`、文節化、N-best、リライターを通した製品の変換結果との一致は
+主張しません。変換比較の詳細と出力は `validation-output/conversion/` に保存します。
 
 生成物とログは `validation-output/` に置きます。実辞書は
 `validation-output/upstream/mozc-<revision>/src/bazel-bin/data_manager/oss/dictionary.data`
@@ -160,7 +223,7 @@ python3 tools/validate.py --bazelisk /path/to/bazelisk
 
 対応するのは little-endian の OSS system dictionary 形式と、標準の
 濁点・小書き文字を区別する検索です。外側の `mozc.data`、Google 日本語入力の
-非公開データ、予測検索、文節分割、かな漢字変換、学習、OS 連携は対象外です。
+非公開データ、予測検索、文節分割、N-best、リライター、学習、OS 連携は対象外です。
 異なる上流版やプラットフォームで生成した辞書の互換性は未検証です。
 
 不正な長さ・インデックス・Unicode・トークン符号はエラーにします。

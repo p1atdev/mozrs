@@ -17,6 +17,7 @@ import tarfile
 import urllib.request
 
 import build_oss
+import validate_conversion
 
 REVISION = "c4b2aef7c65e61be394bacadaec200eb5b97f91c"
 ARCHIVE_SHA256 = "90023a57813911b87e758346d081d8a7f6101e5ca1ff553ca3f10cd27e1e1c8c"
@@ -41,24 +42,28 @@ def prepare(cache):
     with tarfile.open(archive) as tar:
         if not root.exists():
             tar.extractall(cache, filter="data")
-        build_name = f"mozc-{REVISION}/src/dictionary/system/BUILD.bazel"
-        original = tar.extractfile(build_name).read().decode()
-        load, body = (REPO / "tools/oracle.BUILD.bazel").read_text().split("\n", 1)
-        overlay = load + "\n" + original + "\n" + body
+        overlays = {}
+        for package, rule in [("dictionary/system", "oracle"), ("converter", "converter_oracle")]:
+            build_name = f"mozc-{REVISION}/src/{package}/BUILD.bazel"
+            original = tar.extractfile(build_name).read().decode()
+            load, body = (REPO / f"tools/{rule}.BUILD.bazel").read_text().split("\n", 1)
+            overlays[build_name] = (original, load + "\n" + original + "\n" + body)
         # Verify the archived sources, not just the directory's name. The only
         # permitted change is the exact additive oracle BUILD overlay below.
         for member in tar:
             if not member.isfile():
                 continue
             path = cache / member.name
-            if member.name == build_name:
-                if path.read_text() not in (original, overlay):
+            if member.name in overlays:
+                if path.read_text() not in overlays[member.name]:
                     raise RuntimeError(f"unexpected upstream BUILD edits: {path}")
             elif path.read_bytes() != tar.extractfile(member).read():
                 raise RuntimeError(f"upstream source differs from pinned archive: {path}")
     src = root / "src"
-    (src / "dictionary/system/BUILD.bazel").write_text(overlay)
+    for name, (_, overlay) in overlays.items():
+        (cache / name).write_text(overlay)
     shutil.copyfile(REPO / "tools/oracle.cc", src / "dictionary/system/mozrs_oracle.cc")
+    shutil.copyfile(REPO / "tools/converter_oracle.cc", src / "converter/mozrs_converter_oracle.cc")
     return src
 
 
@@ -131,6 +136,8 @@ def main():
     run_logged([
         args.bazelisk, f"--output_user_root={cache / 'bazel-cache'}", "build",
         "//dictionary/system:mozrs_oracle",
+        "//converter:mozrs_converter_oracle",
+        "//data_manager/oss:mozc.data",
         "//data_manager/testing:mozc_dataset_for_testing@dictionary",
         "//data_manager/oss:mozc_dataset_for_oss@dictionary",
         "--config=oss_linux", f"--jobs={args.jobs}",
@@ -207,7 +214,8 @@ def main():
     report["rust_oss"] = compare_corpus("rust-oss", rust_oss,
         [rust_oss.parent / "prepared/aux_dictionary.txt", rust_oss.parent / "prepared/dictionary.txt",
          normal_src / "data/dictionary_manual/domain.txt"], oracle, rust, output, args.sample)
-    report["limits"] = "Generated synthetic, loader and full OSS images are byte-identical to C++. All records decoded; lookup parity checked on recorded queries, not exhaustively on all real keys. No sentence conversion, IME or performance validation."
+    report["conversion"] = validate_conversion.check(src, output, target, args.sample)
+    report["limits"] = "Generated dictionary images are byte-identical to C++; connection image is byte-identical to upstream Python and all costs match C++. Lookup and basic Viterbi parity checked on recorded queries. Not full Mozc conversion, IME or performance validation."
     (output / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
     print(f"PASS: {output / 'report.json'}", flush=True)
 

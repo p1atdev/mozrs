@@ -4,13 +4,21 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 license = "BSD-3-Clause"
-description = "A Rust reader and builder for the pinned Mozc OSS binary system dictionary"
+description = "Rust dictionary tools and a basic minimum-cost converter for pinned Mozc OSS data"
 default-run = "mozrs"
 publish = false
 
 [[bin]]
 name = "mozrs-build"
 path = "src/build_main.rs"
+
+[[bin]]
+name = "mozrs-build-connection"
+path = "src/connection_main.rs"
+
+[[bin]]
+name = "mozrs-convert"
+path = "src/convert_main.rs"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
