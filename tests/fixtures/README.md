@@ -28,3 +28,16 @@ Dictionary SHA-256:
 
 Expected JSONL SHA-256:
 `d52113f81d6250a8a368d5d65784f1c34d8fadade805d4faf2c2380a4def4d14`
+
+Connection fixtures: `connection.txt` is a handwritten 9×9 cost matrix;
+`connection-id.def` / `connection-special-pos.def` add two special POS IDs.
+Pinned upstream `gen_connection_data.py` generated `connection.data` (380 bytes)
+and `connection-costs.bin` (121 little-endian u16 costs). Rust generation must
+match these bytes. Includes mode ties, 8/32-bit boundaries, partial chunks,
+16-bit maximum costs, default costs and special POS transitions.
+
+`conversion.tsv` is handwritten vocabulary for optional C++ Viterbi comparison.
+That comparison uses the real OSS connection matrix, saved only in the local
+cache. It compares identical basic nodes and no history/bonus; it does not use
+full Mozc output as a golden result. `tests/converter.rs` separately checks
+hand-calculable paths, ties, BOS/EOS, unknown text and exhaustive small graphs.

@@ -1,10 +1,13 @@
 // Copyright 2026 mozrs contributors. Portions derived from Mozc; see LICENSE.
 //! Read and build the standalone OSS `dictionary.data` format from pinned Mozc.
-//! This library provides word lookup, not sentence conversion or prediction.
+//! Provides dictionary lookup and basic minimum-cost sentence conversion.
+//! Does not implement full Mozc segmentation, rewriters, prediction or IME APIs.
 //! Parsing checks structure eagerly; [`Dictionary::validate`] also decodes all
 //! keys and tokens. Lookup returns errors for malformed data it encounters.
 pub mod builder;
 mod codec;
+pub mod connection;
+pub mod converter;
 pub mod input;
 mod reader;
 mod trie;
@@ -88,6 +91,10 @@ impl<'a> Dictionary<'a> {
 
     /// Validate every stored key, value and token; return the token count.
     pub fn validate(&self) -> Result<usize> {
+        self.validate_pos_limit(4096)
+    }
+
+    pub(crate) fn validate_pos_limit(&self, pos_size: usize) -> Result<usize> {
         for id in 0..self.values.len() {
             codec::decode_value(&self.values.restore(id)?)?;
         }
@@ -96,8 +103,15 @@ impl<'a> Dictionary<'a> {
             let bytes = self.keys.restore(id)?;
             let encoded = std::str::from_utf8(&bytes).map_err(|_| Error("invalid key UTF-8"))?;
             let key = codec::transform_key(encoded);
+            let tokens = self.tokens(id, &key)?;
+            ensure(
+                tokens
+                    .iter()
+                    .all(|t| usize::from(t.lid) < pos_size && usize::from(t.rid) < pos_size),
+                "dictionary POS ID outside connection matrix",
+            )?;
             count = count
-                .checked_add(self.tokens(id, &key)?.len())
+                .checked_add(tokens.len())
                 .ok_or(Error("token count overflow"))?;
         }
         Ok(count)

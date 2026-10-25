@@ -1,0 +1,21 @@
+load("//:build_defs.bzl", "mozc_cc_binary")
+
+mozc_cc_binary(
+    name = "mozrs_converter_oracle",
+    srcs = ["mozrs_converter_oracle.cc"],
+    deps = [
+        "//engine:modules",
+        "//converter:connector",
+        "//converter:immutable_converter",
+        "//converter:lattice",
+        "//converter:node",
+        "//converter:segments",
+        "//data_manager",
+        "//dictionary:dictionary_interface",
+        "//dictionary:dictionary_token",
+        "//dictionary/system:system_dictionary",
+        "//request:options",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+    ],
+)

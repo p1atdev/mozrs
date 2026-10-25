@@ -1,7 +1,7 @@
 # Attribution and data licensing
 
 The binary format, codec transformations, lookup, builder and input behavior in
-`src/{reader,trie,codec,lib,builder,input}.rs` are ported/adapted from Google Mozc at
+`src/{reader,trie,codec,lib,builder,input,connection,converter}.rs` are ported/adapted from Google Mozc at
 `c4b2aef7c65e61be394bacadaec200eb5b97f91c` (BSD 3-Clause):
 
 - `src/base/hash.cc`
@@ -15,6 +15,13 @@ The binary format, codec transformations, lookup, builder and input behavior in
 - `src/storage/louds/{louds_trie_builder,bit_vector_based_array_builder,bit_stream}.{h,cc}`
 - `src/data/preedit/hiragana-katakana.tsv`
 - `src/data/preedit/normalize-voiced-sound.tsv` (copied verbatim into `src/`)
+- `src/data_manager/gen_connection_data.py`
+- `src/converter/connector.{h,cc}`, `lattice.{h,cc}`, `immutable_converter.{h,cc}`
+
+The Rust converter intentionally uses a smaller node construction policy than
+Mozc. The optional `tools/converter_oracle.cc` calls unchanged upstream Viterbi
+through its existing test-peer friendship, with matching nodes and settings.
+It does not implement a second best-path algorithm or modify upstream methods.
 
 The original copyright and license text is retained in
 `licenses/Mozc-BSD.txt`; `LICENSE` also licenses the new code under BSD-3-Clause.
@@ -28,6 +35,12 @@ and reading corrections, plus all 258 BSD-licensed normalization rules above;
 `loader-input.jsonl` and `loader.data` are produced by the C++ loader/builder.
 They contain no copied IPAdic/OSS dictionary
 corpus. They are provided under this project's BSD-3-Clause license.
+
+The small `connection*` fixtures contain handwritten costs and POS labels;
+the binary and decoded expected values were produced by the pinned upstream
+Python generator. `conversion.tsv` is also handwritten test vocabulary.
+Real OSS connection costs and quality-regression input readings are used only
+in the optional local validation cache and are not bundled or relicensed.
 
 The actual upstream OSS and test dictionaries are **not bundled**. The optional
 generation and optional validation workflows download them into their local caches. Their licensing is
