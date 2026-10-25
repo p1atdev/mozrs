@@ -1,0 +1,20 @@
+[package]
+name = "mozrs"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "BSD-3-Clause"
+description = "A Rust reader and builder for the pinned Mozc OSS binary system dictionary"
+default-run = "mozrs"
+publish = false
+
+[[bin]]
+name = "mozrs-build"
+path = "src/build_main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lints.rust]
+unsafe_code = "forbid"
