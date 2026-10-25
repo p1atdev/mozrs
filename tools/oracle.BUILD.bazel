@@ -1,0 +1,16 @@
+load("//:build_defs.bzl", "mozc_cc_binary")
+
+mozc_cc_binary(
+    name = "mozrs_oracle",
+    srcs = ["mozrs_oracle.cc"],
+    deps = [
+        "//dictionary:dictionary_interface",
+        "//dictionary:dictionary_token",
+        "//dictionary:text_dictionary_loader",
+        "//dictionary/system:system_dictionary",
+        "//dictionary/system:system_dictionary_builder",
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+    ],
+)

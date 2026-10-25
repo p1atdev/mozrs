@@ -1,0 +1,4 @@
+/target/
+/validation-output/
+/dictionary-build/
+__pycache__/
